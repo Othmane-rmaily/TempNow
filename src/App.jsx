@@ -2,38 +2,93 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import SearchBar from './components/SearchBar'
 import WeatherCard from './components/WeatherCard'
+import LoadingSpinner from './components/LoadingSpinner'
+import WeeklyForcast from './components/WeeklyForecast'
+import ErrorMessage from './components/ErrorMessage'
 import { getBackgroundImage } from './utils/backgroundImages'
+import { getWeatherByCity, getWeatherByCoords } from './utils/api'
 import './App.css'
 
 function App() {
   const [weatherData, setWeatherData] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [geoError, setGeoError] = useState(null)
   const [backgroundImage, setBackgroundImage] = useState(null)
+
+  // Get user's location when app loads
+  useEffect(() => {
+    if (navigator.geolocation) {
+      setLoading(true);
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          try {
+            const { latitude, longitude } = position.coords;
+            const data = await getWeatherByCoords(latitude, longitude);
+            setWeatherData(data);
+            setGeoError(null);
+          } catch (err) {
+            setGeoError('Weather data not available. Please search for a city instead.');
+          } finally {
+            setLoading(false);
+          }
+        },
+        (error) => {
+          setGeoError('Location access denied. Please search for a city instead.');
+          setLoading(false);
+        }
+      );
+    } else {
+      setGeoError('Geolocation is not supported by your browser. Please search for a city instead.');
+    }
+  }, []); // Run once when component mounts
 
   useEffect(() => {
     if (weatherData?.weather?.[0]?.main) {
-      const newBackground = getBackgroundImage(weatherData.weather[0].main)
-      setBackgroundImage(newBackground)
+      const newBackground = getBackgroundImage(weatherData.weather[0].main);
+      setBackgroundImage(newBackground);
     } else {
-      setBackgroundImage(getBackgroundImage())
+      setBackgroundImage(getBackgroundImage());
     }
-  }, [weatherData])
+  }, [weatherData]);
 
   const fetchWeather = async (city) => {
-    setLoading(true)
-    setError(null)
+    setLoading(true);
+    setError(null);
     try {
-      const response = await fetch(`https://api.openweathermap.org/data/2.5/weather?q=${city}&appid=3b1030315e641561f60535c426d48795&units=metric`)
-      if (!response.ok) throw new Error('City not found')
-      const data = await response.json()
-      setWeatherData(data)
+      const data = await getWeatherByCity(city);
+      setWeatherData(data);
     } catch (err) {
-      setError(err.message)
+      setError(err.message);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
   }
+
+  const handleRetryGeolocation = () => {
+    if (navigator.geolocation) {
+      setLoading(true);
+      setGeoError(null);
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          try {
+            const { latitude, longitude } = position.coords;
+            const data = await getWeatherByCoords(latitude, longitude);
+            setWeatherData(data);
+            setGeoError(null);
+          } catch (err) {
+            setGeoError('Weather data not available. Please search for a city instead.');
+          } finally {
+            setLoading(false);
+          }
+        },
+        (error) => {
+          setGeoError('Location access denied. Please search for a city instead.');
+          setLoading(false);
+        }
+      );
+    }
+  };
 
   return (
     <>
@@ -69,6 +124,14 @@ function App() {
               <SearchBar onSearch={fetchWeather} />
             </motion.div>
             
+            {geoError && (
+              <ErrorMessage
+              type="warning"
+              message={geoError}
+              onRetry={!geoError?.includes('not supported') ? handleRetryGeolocation : undefined}
+              />
+            )}
+            
             <div className="flex items-center justify-center mt-6 sm:mt-8 w-full">
               <AnimatePresence mode="wait">
                 {loading && (
@@ -77,38 +140,39 @@ function App() {
                     initial={{ opacity: 0 }}
                     animate={{ opacity: 1 }}
                     exit={{ opacity: 0 }}
-                    className="animate-pulse bg-white/10 backdrop-blur-md rounded-2xl 
-                              p-4 sm:p-8 w-full max-w-md mx-auto"
+                    className="bg-white/10 backdrop-blur-md rounded-2xl 
+                              p-8 sm:p-10 w-full max-w-md mx-auto text-center"
                   >
-                    <div className="h-8 bg-white/20 rounded-lg mb-4"></div>
-                    <div className="h-20 w-20 sm:h-24 sm:w-24 bg-white/20 rounded-full mx-auto mb-4"></div>
-                    <div className="h-16 sm:h-20 bg-white/20 rounded-lg mb-6"></div>
-                    <div className="grid grid-cols-2 gap-3 sm:gap-4">
-                      <div className="h-20 sm:h-24 bg-white/20 rounded-lg"></div>
-                      <div className="h-20 sm:h-24 bg-white/20 rounded-lg"></div>
-                    </div>
+                    <LoadingSpinner />
+                    <motion.p
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.2 }}
+                      className="mt-4 text-white/80 text-sm sm:text-base"
+                    >
+                      {error ? "Searching for your city..." :
+                       geoError ? "Please enter a city name above" :
+                       "Detecting your location..."}
+                    </motion.p>
                   </motion.div>
                 )}
                 {error && (
-                  <motion.div
+                  <ErrorMessage
                     key="error"
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    transition={{ duration: 0.3 }}
-                    className="bg-red-500/10 backdrop-blur-md text-red-200 
-                              px-4 sm:px-6 py-4 rounded-xl border border-red-500/20
-                              w-full max-w-md mx-auto"
-                  >
-                    <p className="flex items-center gap-2 text-sm sm:text-base">
-                      <svg className="w-5 h-5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
-                      </svg>
-                      {error}
-                    </p>
-                  </motion.div>
+                    type="error"
+                    message={error}
+                    onDismiss={() => setError(null)}
+                  />
                 )}
                 {weatherData && <WeatherCard key="weather" data={weatherData} />}
+                {weatherData && (
+                  <WeeklyForcast
+                    key="forecast"
+                    forecast={weatherData.forecast}
+                    isLoading={loading}
+                    error={error}
+                  />
+                )}
               </AnimatePresence>
             </div>
 
